@@ -1,4 +1,9 @@
-## Fabric Reuse (MERN)
+##  Abstract
+
+**FabExpo** is a sustainability-focused platform that reduces textile waste by connecting users with organizations that can repurpose unused clothing. Users upload old garments, earn reward points based on quality, and redeem them for vouchers—encouraging responsible and circular consumption. Built on the MERN stack, the project combines technology with environmental impact to promote smarter, eco-friendly lifestyle choices.
+## FabExpo (MERN)
+
+
 
 Marketplace-style fabric reuse platform:
 - Users sign up/login and upload old-cloth listings with photos.
