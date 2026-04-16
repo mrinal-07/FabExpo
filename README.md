@@ -57,17 +57,14 @@ This creates two offers and demo codes (safe for local testing).
 ### Load real voucher codes (admin)
 Set `ADMIN_KEY` in `server/.env`, then `POST /api/redemptions/admin/vouchers` with header `x-admin-key: <ADMIN_KEY>` and JSON body `{ "offerId": "<mongo id>", "codes": ["CODE1", "CODE2"] }`.
 
-## Screenshots
 
-Add screenshot images to `ss/`, then include them in `README.md` like this:
 
-```md
 ## Screenshots
 
 ![Homepage screenshot](ss/login.png)
 ![Listing upload screenshot](ss/listings.png)
 ![Redeem points screenshot](ss/shipping-details.png)
-```
+
 
 Update the file names to match your actual screenshot images.
 

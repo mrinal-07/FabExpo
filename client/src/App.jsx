@@ -106,7 +106,7 @@ function Nav({ me, onLogout }) {
                 borderRadius: 999,
                 letterSpacing: "0.02em",
               }}>
-                ✦ {(me.pointsBalance ?? 0).isitoLocaleString()} pts
+                ✦ {(me.pointsBalance ?? 0).toLocaleString()} pts
               </span>
             ) : null}
             <button className="btn" onClick={onLogout}>
