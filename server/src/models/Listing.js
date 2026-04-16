@@ -29,6 +29,7 @@ const listingSchema = new mongoose.Schema(
         "rejected",
         "pickup_scheduled",
         "picked_up",
+        "received",
         "recycled",
         "completed"
       ],

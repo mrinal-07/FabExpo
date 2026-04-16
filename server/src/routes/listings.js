@@ -81,54 +81,17 @@ listingsRouter.post(
     const listing = await Listing.findById(req.params.id);
     if (!listing) return res.status(404).json({ error: "Listing not found" });
 
-    // Require verified company for real-world flow (admin can override later)
-    const company = await User.findById(req.user._id).lean();
-    if (company?.companyProfile?.verificationStatus !== "verified") {
-      return res.status(403).json({ error: "Company must be verified to review & award points" });
-    }
-
     if (typeof parsed.data.weightKg === "number") listing.weightKg = parsed.data.weightKg;
-    listing.grade = {
-      qualityGrade: parsed.data.qualityGrade,
-      notes: parsed.data.note || ""
-    };
 
     listing.status = parsed.data.status === "accepted" ? "accepted" : "rejected";
     listing.review = {
       companyId: req.user._id,
       status: parsed.data.status,
       pointsAwarded: 0,
-      note: parsed.data.note
+      note: "Pre-approved pending physical pickup"
     };
 
-    if (listing.review.status === "accepted") {
-      const rules = company.companyProfile?.pointsRules;
-      const base = rules?.basePointsPerKg ?? 200;
-      const mult = rules?.conditionMultipliers?.[listing.condition] ?? 1.0;
-      const gradeMult = parsed.data.qualityGrade === "A" ? 1.2 : parsed.data.qualityGrade === "B" ? 1.0 : parsed.data.qualityGrade === "C" ? 0.8 : 0.6;
-      const computed = Math.round((listing.weightKg || 0) * base * mult * gradeMult);
-      const manual = typeof parsed.data.pointsAwarded === "number" ? parsed.data.pointsAwarded : null;
-      listing.review.pointsAwarded = manual ?? computed;
-    }
     await listing.save();
-
-    if (listing.review.status === "accepted" && listing.review.pointsAwarded > 0) {
-      const updatedUser = await User.findOneAndUpdate(
-        { _id: listing.userId },
-        { $inc: { pointsBalance: listing.review.pointsAwarded } },
-        { new: true }
-      ).lean();
-      if (updatedUser) {
-        await PointsLedger.create({
-          userId: updatedUser._id,
-          type: "earn",
-          amount: listing.review.pointsAwarded,
-          balanceAfter: updatedUser.pointsBalance,
-          reason: "Points awarded for accepted listing",
-          ref: { kind: "listing", id: String(listing._id) }
-        });
-      }
-    }
 
     const updated = await Listing.findById(listing._id).lean();
     res.json({ listing: updated });
@@ -210,3 +173,139 @@ listingsRouter.get("/:id/pickup", requireAuth(), async (req, res) => {
   res.json({ pickup });
 });
 
+const courierSchema = z.object({
+  provider: z.string().min(1).max(120),
+  trackingId: z.string().max(120).optional().default(""),
+  trackingUrl: z.string().max(255).optional().default("")
+});
+
+// Company assigns delivery person/courier
+listingsRouter.post("/:id/pickup/courier", requireAuth(), requireRole("company"), async (req, res) => {
+  const parsed = courierSchema.safeParse(req.body);
+  if (!parsed.success) {
+    const err = parsed.error.issues[0];
+    return res.status(400).json({ error: `Validation error: ${err.message}` });
+  }
+
+  const listing = await Listing.findById(req.params.id);
+  if (!listing) return res.status(404).json({ error: "Listing not found" });
+
+  if (String(listing.review?.companyId) !== String(req.user._id)) {
+    return res.status(403).json({ error: "Only the reviewing company can assign a courier" });
+  }
+
+  const pickup = await Pickup.findOne({ listingId: listing._id });
+  if (!pickup) return res.status(404).json({ error: "Pickup not found" });
+
+  if (pickup.status === "scheduled") {
+    pickup.status = "in_transit";
+  }
+
+  pickup.courier = {
+    provider: parsed.data.provider,
+    trackingId: parsed.data.trackingId,
+    trackingUrl: parsed.data.trackingUrl
+  };
+  await pickup.save();
+
+  if (listing.status === "pickup_scheduled") {
+    listing.status = "picked_up";
+    await listing.save();
+  }
+
+  res.json({ pickup, listing: await Listing.findById(listing._id).lean() });
+});
+
+// Company marks pickup as physically received
+listingsRouter.post("/:id/pickup/receive", requireAuth(), requireRole("company"), async (req, res) => {
+  const listing = await Listing.findById(req.params.id);
+  if (!listing) return res.status(404).json({ error: "Listing not found" });
+
+  if (String(listing.review?.companyId) !== String(req.user._id)) {
+    return res.status(403).json({ error: "Only the managing company can receive this item" });
+  }
+
+  const pickup = await Pickup.findOne({ listingId: listing._id });
+  if (!pickup) return res.status(404).json({ error: "Pickup not found" });
+
+  pickup.status = "delivered";
+  await pickup.save();
+
+  listing.status = "received";
+  await listing.save();
+
+  res.json({ pickup, listing: await Listing.findById(listing._id).lean() });
+});
+
+// Final QA & Points Awarding
+const verifySchema = z.object({
+  pointsAwarded: z.coerce.number().min(0).max(5000).optional(),
+  note: z.string().max(500).optional().default(""),
+  qualityGrade: z.enum(["A", "B", "C", "D"]).optional().default("B"),
+  weightKg: z.coerce.number().min(0).max(200).optional()
+});
+
+listingsRouter.post(
+  "/:id/verify",
+  requireAuth(),
+  requireRole("company"),
+  async (req, res) => {
+    const parsed = verifySchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid input", detail: parsed.error.issues[0]?.message });
+
+    const listing = await Listing.findById(req.params.id);
+    if (!listing) return res.status(404).json({ error: "Listing not found" });
+
+    if (String(listing.review?.companyId) !== String(req.user._id)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    if (listing.status !== "received") {
+      return res.status(400).json({ error: "Item must be received before final verification" });
+    }
+
+    if (typeof parsed.data.weightKg === "number") listing.weightKg = parsed.data.weightKg;
+    listing.grade = {
+      qualityGrade: parsed.data.qualityGrade,
+      notes: parsed.data.note || ""
+    };
+
+    listing.status = "completed";
+    
+    // Perform points math
+    const company = await User.findById(req.user._id).lean();
+    const rules = company.companyProfile?.pointsRules;
+    const base = rules?.basePointsPerKg ?? 200;
+    const mult = rules?.conditionMultipliers?.[listing.condition] ?? 1.0;
+    const gradeMult = parsed.data.qualityGrade === "A" ? 1.2 : parsed.data.qualityGrade === "B" ? 1.0 : parsed.data.qualityGrade === "C" ? 0.8 : 0.6;
+    const computed = Math.round((listing.weightKg || 0) * base * mult * gradeMult);
+    const manual = typeof parsed.data.pointsAwarded === "number" ? parsed.data.pointsAwarded : null;
+    
+    listing.review.pointsAwarded = manual ?? computed;
+    await listing.save();
+
+    if (listing.review.pointsAwarded > 0) {
+      const updatedUser = await User.findOneAndUpdate(
+        { _id: listing.userId },
+        { $inc: { pointsBalance: listing.review.pointsAwarded } },
+        { new: true }
+      ).lean();
+      
+      const { PointsLedger } = await import("../models/PointsLedger.js");
+
+      if (updatedUser) {
+        await PointsLedger.create({
+          userId: updatedUser._id,
+          type: "earn",
+          amount: listing.review.pointsAwarded,
+          balanceAfter: updatedUser.pointsBalance,
+          reason: "Points awarded for finalized fabric receipt",
+          ref: { kind: "listing", id: String(listing._id) }
+        });
+      }
+    }
+
+    const updated = await Listing.findById(listing._id).lean();
+    res.json({ listing: updated });
+  }
+);

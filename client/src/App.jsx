@@ -4,6 +4,20 @@ import { api, setToken, getToken, API_BASE } from "./api.js";
 import { ChatPage } from "./ChatPage.jsx";
 import { CompanyOnboarding } from "./CompanyOnboarding.jsx";
 
+const STATUS_PILL = {
+  submitted: "pill",
+  in_review: "pill pill-scheduled",
+  accepted: "pill pill-accepted",
+  rejected: "pill pill-rejected",
+  pickup_scheduled: "pill pill-scheduled",
+  picked_up: "pill pill-transit",
+  in_transit: "pill pill-transit",
+  received: "pill pill-received",
+  completed: "pill pill-completed",
+  recycled: "pill pill-completed",
+};
+function statusClass(s) { return STATUS_PILL[s] || "pill"; }
+
 function useMe() {
   const [me, setMe] = React.useState(null);
   const [loading, setLoading] = React.useState(Boolean(getToken()));
@@ -42,8 +56,7 @@ function Nav({ me, onLogout }) {
   return (
     <div className="nav">
       <div className="brand">
-        <Link to="/">Fabric Reuse</Link>
-        <span className="badge">MVP</span>
+        <Link to="/">FabExpo</Link>
       </div>
       <div className="row">
         {me ? (
@@ -64,19 +77,36 @@ function Nav({ me, onLogout }) {
               </Link>
             ) : null}
             <div className="profile">
-  <strong>{me.name}</strong>
-  <div className="muted">{me.email}</div>
+              <strong>{me.name}</strong>
+              <div className="muted">{me.email}</div>
 
-  <div className="muted">
-    {me.address?.line1 && `${me.address.line1}, `}
-    {me.address?.city && `${me.address.city}, `}
-    {me.address?.state && `${me.address.state} `}
-    {me.address?.pincode}
-  </div>
-</div>
+              <div className="muted">
+                {me.address?.line1 && `${me.address.line1}, `}
+                {me.address?.city && `${me.address.city}, `}
+                {me.address?.state && `${me.address.state} `}
+                {me.address?.pincode}
+              </div>
+            </div>
             {me.role === "company" ? (
               <span className="pill">
                 {me.companyProfile?.verificationStatus || "unsubmitted"}
+              </span>
+            ) : null}
+            {me.role === "user" ? (
+              <span style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                background: "linear-gradient(135deg, #f6c90e22, #f6c90e44)",
+                border: "1px solid #f6c90e88",
+                color: "#f6c90e",
+                fontWeight: 700,
+                fontSize: 14,
+                padding: "5px 14px",
+                borderRadius: 999,
+                letterSpacing: "0.02em",
+              }}>
+                ✦ {(me.pointsBalance ?? 0).isitoLocaleString()} pts
               </span>
             ) : null}
             <button className="btn" onClick={onLogout}>
@@ -114,11 +144,11 @@ function LoginPage({ onAuthed }) {
         mode === "login"
           ? await api.login({ email: form.email, password: form.password })
           : await api.register({
-              name: form.name,
-              email: form.email,
-              password: form.password,
-              role: form.role
-            });
+            name: form.name,
+            email: form.email,
+            password: form.password,
+            role: form.role
+          });
       setToken(data.token);
       await onAuthed();
       navigate("/");
@@ -134,7 +164,7 @@ function LoginPage({ onAuthed }) {
       <div className="card">
         <h2>{mode === "login" ? "Login" : "Create an account"}</h2>
         <p className="muted">
-          Users upload cloth listings. Companies review and award points.
+          Give your fabric a second life—and get rewarded for it
         </p>
         {error ? <div className="error">{error}</div> : null}
         <form onSubmit={submit}>
@@ -279,6 +309,64 @@ function UploadCard({ onCreated }) {
   );
 }
 
+function VerifyListingForm({ listingId, onVerified, onCancel }) {
+  const [qualityGrade, setQualityGrade] = React.useState("B");
+  const [points, setPoints] = React.useState("100");
+  const [note, setNote] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState("");
+
+  async function submit(e) {
+    if (e) e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await api.verifyListing(listingId, {
+        pointsAwarded: Number(points) || 0,
+        qualityGrade,
+        note
+      });
+      await onVerified();
+    } catch (err) {
+      setError(err.message || "Failed to verify listing");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 12, padding: 16 }}>
+      <h3 style={{ marginTop: 0 }}>Verify Fabric & Finalize Points</h3>
+      {error ? <div className="error">{error}</div> : null}
+      <form onSubmit={submit}>
+        <div className="row">
+          <div style={{ flex: 1, minWidth: 150 }}>
+            <label>Quality Grade</label>
+            <select value={qualityGrade} onChange={e => setQualityGrade(e.target.value)}>
+              <option value="A">A (Excellent)</option>
+              <option value="B">B (Good)</option>
+              <option value="C">C (Fair)</option>
+              <option value="D">D (Poor)</option>
+            </select>
+          </div>
+          <div style={{ flex: 1, minWidth: 150 }}>
+            <label>Points to Award</label>
+            <input type="number" required min="0" max="5000" value={points} onChange={e => setPoints(e.target.value)} />
+          </div>
+        </div>
+        <label>Note (optional)</label>
+        <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Condition details or notes for the user..." />
+
+        <div className="spacer" />
+        <div className="row" style={{ marginTop: 12 }}>
+          <button type="submit" className="btn primary" disabled={busy}>{busy ? "Processing..." : "Award Points"}</button>
+          <button type="button" className="btn" disabled={busy} onClick={onCancel}>Cancel</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function SchedulePickupForm({ listingId, onScheduled, onCancel }) {
   const [address, setAddress] = React.useState({ line1: "", city: "", state: "", pincode: "" });
   const [phone, setPhone] = React.useState("");
@@ -350,6 +438,124 @@ function SchedulePickupForm({ listingId, onScheduled, onCancel }) {
   );
 }
 
+function PickupDetails({ listingId, me, onUpdated, onCancel }) {
+  const [pickup, setPickup] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState("");
+
+  const [provider, setProvider] = React.useState("");
+  const [trackingId, setTrackingId] = React.useState("");
+  const [trackingUrl, setTrackingUrl] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    async function load() {
+      try {
+        const data = await api.getPickup(listingId);
+        setPickup(data.pickup);
+      } catch (err) {
+        setError(err.message || "Failed to load pickup details");
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [listingId]);
+
+  async function assign(e) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await api.assignCourier(listingId, { provider, trackingId, trackingUrl });
+      await onUpdated();
+    } catch (err) {
+      setError(err.message || "Failed to assign courier");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loading) return <div className="muted" style={{ marginTop: 12 }}>Loading details...</div>;
+  if (error) return <div className="error" style={{ marginTop: 12 }}>{error}</div>;
+  if (!pickup) return <div className="muted" style={{ marginTop: 12 }}>No pickup info found.</div>;
+
+  return (
+    <div className="card" style={{ marginTop: 12, padding: 16 }}>
+      <h3 style={{ marginTop: 0 }}>Delivery Details</h3>
+      <div className="row">
+        <div style={{ flex: 1 }}>
+          <strong>Address</strong>
+          <div className="muted">
+            {pickup.address?.line1}<br />
+            {pickup.address?.city}, {pickup.address?.state} {pickup.address?.pincode}
+          </div>
+        </div>
+        <div style={{ flex: 1 }}>
+          <strong>Contact</strong>
+          <div className="muted">{pickup.contactPhone}</div>
+          <strong style={{ display: "block", marginTop: 8 }}>Scheduled Date</strong>
+          <div className="muted">{new Date(pickup.scheduledFor).toLocaleDateString()}</div>
+        </div>
+      </div>
+
+      {pickup.courier?.provider ? (
+        <div style={{ marginTop: 16, padding: 12, backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 8 }}>
+          <strong>Courier: {pickup.courier.provider}</strong>
+          {pickup.courier.trackingId && <span style={{ marginLeft: 8 }} className="pill">{pickup.courier.trackingId}</span>}
+          {pickup.courier.trackingUrl && (
+            <div style={{ marginTop: 6 }}>
+              <a href={pickup.courier.trackingUrl} target="_blank" rel="noreferrer">Track Package</a>
+            </div>
+          )}
+          {me.role === "company" && pickup.status !== "delivered" ? (
+            <div style={{ marginTop: 12 }}>
+              <button className="btn primary" disabled={busy} onClick={async () => {
+                setBusy(true);
+                try {
+                  await api.receivePickup(listingId);
+                  await onUpdated();
+                  onCancel();
+                } catch (err) { setError(err.message); }
+                finally { setBusy(false); }
+              }}>Mark as Delivered</button>
+            </div>
+          ) : null}
+        </div>
+      ) : me.role === "company" ? (
+        <form onSubmit={assign} style={{ marginTop: 16, padding: 12, border: "1px dashed rgba(255,255,255,0.2)", borderRadius: 8 }}>
+          <h4>Assign Delivery Person</h4>
+          <div className="row">
+            <div style={{ flex: 1, minWidth: 150 }}>
+              <label>Courier Provider / Name</label>
+              <input required value={provider} onChange={e => setProvider(e.target.value)} placeholder="e.g. Delivery Partner John" />
+            </div>
+            <div style={{ flex: 1, minWidth: 150 }}>
+              <label>Tracking / Phone ID</label>
+              <input value={trackingId} onChange={e => setTrackingId(e.target.value)} />
+            </div>
+          </div>
+          <div className="row" style={{ marginTop: 12 }}>
+            <div style={{ flex: 1 }}>
+              <label>Tracking URL</label>
+              <input type="url" value={trackingUrl} onChange={e => setTrackingUrl(e.target.value)} placeholder="e.g. https://bluedart.com/track/..." />
+            </div>
+          </div>
+          <div className="row" style={{ marginTop: 12 }}>
+            <button className="btn primary" disabled={busy}>{busy ? "Assigning..." : "Dispatch"}</button>
+          </div>
+        </form>
+      ) : (
+        <div className="muted" style={{ marginTop: 12 }}>Awaiting company to assign a delivery person.</div>
+      )}
+
+      <div className="row" style={{ marginTop: 16 }}>
+        <button className="btn" type="button" onClick={onCancel}>Close Details</button>
+      </div>
+    </div>
+  );
+}
+
 function Listings({ me }) {
   const [q, setQ] = React.useState("");
   const [mine, setMine] = React.useState(me?.role === "user");
@@ -357,6 +563,8 @@ function Listings({ me }) {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState("");
   const [schedulingFor, setSchedulingFor] = React.useState(null);
+  const [reviewingFor, setReviewingFor] = React.useState(null);
+  const [viewingPickupFor, setViewingPickupFor] = React.useState(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -375,23 +583,14 @@ function Listings({ me }) {
     load();
   }, [load]);
 
-  async function award(listingId) {
-    const points = Number(prompt("Points to award (0-5000):", "100") || "0");
-    if (!Number.isFinite(points) || points < 0) return;
-    await api.reviewListing(listingId, { status: "accepted", pointsAwarded: points, note: "" });
-    await load();
-  }
-
   return (
     <div className="card">
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div>
           <h2>Listings</h2>
-          <p className="muted" style={{ marginTop: 6 }}>
-            {me.role === "user"
-              ? "Your submissions and public feed."
-              : "Review user submissions and award points."}
-          </p>
+          {me.role === "user" ? (
+            <p className="muted" style={{ marginTop: 6 }}>Your submissions and public feed.</p>
+          ) : null}
         </div>
         <span className="pill">{items.length} shown</span>
       </div>
@@ -416,14 +615,17 @@ function Listings({ me }) {
       {error ? <div className="error">{error}</div> : null}
       {loading ? <p className="muted">Loading...</p> : null}
 
-      <div className="list">
+      <div
+        className="list"
+        style={me.role === "company" ? { gridTemplateColumns: "repeat(3, minmax(0, 1fr))" } : undefined}
+      >
         {items.map((it) => (
           <div className="tile" key={it._id}>
             <img src={`${API_BASE}${it.photos?.[0] || ""}`} alt={it.title} />
             <div className="content">
-              <div className="row" style={{ justifyContent: "space-between" }}>
-                <strong>{it.title}</strong>
-                <span className="pill">{it.status}</span>
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+                <strong style={{ fontSize: 15, letterSpacing: "-0.2px" }}>{it.title}</strong>
+                <span className={statusClass(it.status)}>{it.status.replace(/_/g, " ")}</span>
               </div>
               <div className="muted" style={{ marginTop: 6 }}>
                 {it.category} · {it.condition}
@@ -442,21 +644,40 @@ function Listings({ me }) {
                 </div>
               ) : null}
 
-              {me.role === "company" && !it.review ? (
+              {me.role === "company" && !it.review && reviewingFor !== it._id ? (
                 <div className="row" style={{ marginTop: 12 }}>
-                  <button className="btn primary" onClick={() => award(it._id)}>
-                    Accept + award points
+                  <button className="btn primary" onClick={async () => {
+                    await api.reviewListing(it._id, { status: "accepted" });
+                    await load();
+                  }}>
+                    Pre-Approve
                   </button>
-                  <button
-                    className="btn danger"
-                    onClick={async () => {
-                      await api.reviewListing(it._id, { status: "rejected", pointsAwarded: 0, note: "" });
-                      await load();
-                    }}
-                  >
+                  <button className="btn danger" onClick={async () => {
+                    await api.reviewListing(it._id, { status: "rejected" });
+                    await load();
+                  }}>
                     Reject
                   </button>
                 </div>
+              ) : null}
+
+              {me.role === "company" && it.status === "received" && reviewingFor !== it._id ? (
+                <div className="row" style={{ marginTop: 12 }}>
+                  <button className="btn primary" onClick={() => setReviewingFor(it._id)}>
+                    Final QA & Award Points
+                  </button>
+                </div>
+              ) : null}
+
+              {me.role === "company" && reviewingFor === it._id && it.status === "received" ? (
+                <VerifyListingForm
+                  listingId={it._id}
+                  onVerified={async () => {
+                    setReviewingFor(null);
+                    await load();
+                  }}
+                  onCancel={() => setReviewingFor(null)}
+                />
               ) : null}
 
               {me.role === "user" && it.status === "accepted" && schedulingFor !== it._id ? (
@@ -468,13 +689,32 @@ function Listings({ me }) {
               ) : null}
 
               {schedulingFor === it._id && me.role === "user" && it.status === "accepted" ? (
-                <SchedulePickupForm 
-                  listingId={it._id} 
+                <SchedulePickupForm
+                  listingId={it._id}
                   onScheduled={async () => {
                     setSchedulingFor(null);
                     await load();
                   }}
-                  onCancel={() => setSchedulingFor(null)} 
+                  onCancel={() => setSchedulingFor(null)}
+                />
+              ) : null}
+
+              {(it.status === "pickup_scheduled" || it.status === "picked_up" || it.status === "in_transit") && viewingPickupFor !== it._id ? (
+                <div className="row" style={{ marginTop: 12 }}>
+                  <button className="btn" onClick={() => setViewingPickupFor(it._id)}>
+                    View Delivery Details
+                  </button>
+                </div>
+              ) : null}
+
+              {viewingPickupFor === it._id ? (
+                <PickupDetails
+                  listingId={it._id}
+                  me={me}
+                  onUpdated={async () => {
+                    await load();
+                  }}
+                  onCancel={() => setViewingPickupFor(null)}
                 />
               ) : null}
             </div>

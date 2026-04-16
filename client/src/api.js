@@ -49,6 +49,13 @@ export const api = {
     request(`/api/listings/${id}/review`, { method: "POST", body: payload }),
   schedulePickup: (id, payload) =>
     request(`/api/listings/${id}/pickup/schedule`, { method: "POST", body: payload }),
+  getPickup: (id) => request(`/api/listings/${id}/pickup`),
+  assignCourier: (id, payload) =>
+    request(`/api/listings/${id}/pickup/courier`, { method: "POST", body: payload }),
+  receivePickup: (id) => 
+    request(`/api/listings/${id}/pickup/receive`, { method: "POST" }),
+  verifyListing: (id, payload) =>
+    request(`/api/listings/${id}/verify`, { method: "POST", body: payload }),
   redemptionCatalog: () => request("/api/redemptions/catalog"),
   redemptionMine: () => request("/api/redemptions/mine"),
   redeem: (offerId) =>

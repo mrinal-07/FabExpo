@@ -14,7 +14,7 @@ const addressSchema = new mongoose.Schema(
 
 const pickupSchema = new mongoose.Schema(
   {
-    listingId: { type: mongoose.Schema.Types.ObjectId, ref: "Listing", required: true, index: true },
+    listingId: { type: mongoose.Schema.Types.ObjectId, ref: "Listing", required: true },
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     companyId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
 
